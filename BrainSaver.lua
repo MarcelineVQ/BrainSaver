@@ -2,6 +2,14 @@ local _G = _G or getfenv(0)
 
 local addon_name = "BrainSaver"
 local dialog_alpha = 0.35
+local talentButtons = {}
+
+if not BrainSaverDB then
+    BrainSaverDB = {}
+end
+if not BrainSaverDB.spec then
+    BrainSaverDB.spec = {}
+end
 
 --------------------------------------------------
 -- Main Frame Setup
@@ -123,201 +131,87 @@ end
 -- Returns the texture path if found, or nil otherwise.
 ----------------------------------------------------------------
 local function SearchSpellbookForIcon(spellName)
+  if type(spellName) ~= "string" then
+    print("Erreur: 'spellName' est nil ou invalide dans SearchSpellbookForIcon")
+    return nil
+  end
+
   local lowerSpellName = string.lower(spellName)
   local index = 1
   local foundTexture = nil
-  -- In WoW 1.12, iterate until GetSpellName returns nil.
+
   while true do
     local name, rank = GetSpellName(index, BOOKTYPE_SPELL)
-    if not name then
-      break
-    end
+    if not name then break end
+
     if string.lower(name) == lowerSpellName then
       foundTexture = GetSpellTexture(index, BOOKTYPE_SPELL)
       break
     end
+
     index = index + 1
   end
+
   return foundTexture
 end
+
 
 ----------------------------------------------------------------
 -- Searches the talent list for a talent matching the given name.
 -- Returns the talent’s texture if found, or nil otherwise.
 ----------------------------------------------------------------
 local function SearchTalentsForIcon(talentName)
+  if type(talentName) ~= "string" then
+    print("Erreur: 'talentName' est nil ou invalide dans SearchTalentsForIcon")
+    return nil
+  end
+
   local lowerTalentName = string.lower(talentName)
-  local foundTexture = nil
-  -- In WoW 1.12 there are 3 talent tabs; adjust the max talents per tab if needed.
+
   for tab = 1, 3 do
     for talent = 1, 100 do
-      local name, texture, tier, column, rank, maxRank = GetTalentInfo(tab, talent)
-      if not name then
-        break
-      end
+      local name, texture = GetTalentInfo(tab, talent)
+      if not name then break end
+
       if string.lower(name) == lowerTalentName then
-        foundTexture = texture
-        return foundTexture
+        return texture
       end
     end
   end
-  return foundTexture
+
+  return nil
 end
+
 
 function FindTexture(source)
   local icon = "Interface\\Icons\\INV_Misc_QuestionMark"
+
+  if type(source) ~= "string" or source == "" then
+    print("FindTexture: 'source' invalide ou nil:", source)
+    return icon
+  end
+
   local spell_icon = SearchSpellbookForIcon(source)
   local talent_icon = SearchTalentsForIcon(source)
+
   if spell_icon then
     icon = spell_icon
   elseif talent_icon then
     icon = talent_icon
-  else -- check if it's a valid texture path
+  else
+    -- Vérifie si source est une texture valide
     mainFrame.iconCheckTexture:SetTexture(source)
     if mainFrame.iconCheckTexture:GetTexture() then
       icon = source
     end
-    mainFrame.iconCheckTexture:SetTexture()
+    mainFrame.iconCheckTexture:SetTexture(nil)
   end
 
   return icon
 end
 
---------------------------------------------------
--- Create 4 Talent Buttons in a 2x2 Grid
---------------------------------------------------
-local talentButtons = {}
-local numRows, numCols = 2, 2
-local btnWidth, btnHeight = 64, 64
-local spacing = 40
--- Calculate the grid width.
-local gridWidth = numCols * btnWidth + (numCols - 1) * spacing
--- Center the grid horizontally.
-local gridXOffset = (mainFrame:GetWidth() - gridWidth) / 2  
--- Position the grid a bit below the talent summary text.
-local gridTopOffset = -110
 
-local index = 1
-for row = 1, numRows do
-    for col = 1, numCols do
-        local btn = CreateFrame("Button", "TalentButton"..index, mainFrame, "ActionButtonTemplate")
-        btn:SetWidth(btnWidth)
-        btn:SetHeight(btnHeight)
-        -- Calculate x and y offsets relative to mainFrame's TOPLEFT.
-        local x = gridXOffset + (col - 1) * (btnWidth + spacing)
-        local y = gridTopOffset - (row - 1) * (btnHeight + spacing)
-        btn:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", x, y)
-        btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-        
-        -- Static slot number in the top-left corner.
-        btn.slotNumberText = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        btn.slotNumberText:SetFont(btn.slotNumberText:GetFont(), 16, "")
-        btn.slotNumberText:SetPoint("CENTER", btn, "BOTTOMRIGHT", -8, 9)
-        btn.slotNumberText:SetText(index)
-        
-        -- Editable layout name above the button.
-        btn.layoutName = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        btn.layoutName:SetPoint("BOTTOM", btn, "TOP", 0, 16)
-        btn.layoutName:SetText("Spec " .. index)
 
-        -- Editable layout name above the button.
-        btn.talentSummary = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        btn.talentSummary:SetPoint("BOTTOM", btn, "TOP", 0, 2)
-        btn.talentSummary:SetText("? | ? | ?")
-
-        -- Editable layout name above the button.
-        btn.activeIndicator = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-        local aif,ais = btn.activeIndicator:GetFont()
-        btn.activeIndicator:SetFont(aif,ais, "OUTLINE")
-        btn.activeIndicator:SetPoint("CENTER", btn, "CENTER", 0, 0)
-        btn.activeIndicator:SetText("")
-        
-        -- Active/inactive state.
-        btn.isActive = false
-        
-        -- Variables for simulating double-click.
-        btn.clickPending = false
-        btn.lastClickTime = 0
-
-        function btn:SetName(name)
-          self.layoutName:SetText(name)
-        end
-        function btn:GetName()
-          return self.layoutName:GetText()
-        end
-        function btn:SetTalentSummary(t1,t2,t3)
-          if not t1 then
-            self.talentSummary:SetText("? | ? | ?")
-          elseif type(t1) == "string" then
-            self.talentSummary:SetText(t1)
-          else
-            self.talentSummary:SetText(ColorSpecSummary(t1,t2,t3))
-          end
-        end
-        function btn:GetTalentSummary()
-          return self.talentSummary:GetText()
-        end
-        function btn:GetIndex()
-          return self.index
-        end
-        function btn:GetIcon()
-          return self:GetNormalTexture():GetTexture()
-        end
-        function btn:SetIcon(source,disabled) -- path or spellname  or talent name
-          local icon = FindTexture(source)
-
-          self:SetNormalTexture(icon)
-          self:SetPushedTexture(icon)
-
-          if disabled then
-            self:GetNormalTexture():SetVertexColor(0.5, 0.5, 0.5)
-          else
-            self:GetNormalTexture():SetVertexColor(1, 1, 1)
-          end
-
-          return icon
-        end
-
-        btn:SetIcon("Interface\\Icons\\INV_Misc_QuestionMark")
-
-        btn:SetScript("OnClick", function()
-          mainFrame.currentButton = this.index
-
-          if this.isActive then
-            local button = this
-            if arg1 == "RightButton" and IsShiftKeyDown() then
-                StaticPopup_Show("EDIT_TALENT_SLOT")
-            elseif arg1 == "RightButton"  then
-              StaticPopup_Show("SAVE_TALENT_LAYOUT")
-            elseif arg1 == "LeftButton" then
-              if BrainSaverDB.spec[button.index] then
-                StaticPopup_Show("ENABLE_TALENT_LAYOUT")
-              end
-            end
-          else
-            local price
-            for s,btn in mainFrame.gossip_slots.buy do
-              price = btn.price
-              break
-            end
-            StaticPopup_Show("BUY_TALENT_SLOT", price)
-          end
-        end)
-        btn:SetScript("OnShow", function ()
-          if this.isCurrentSpec then
-            -- this:GetNormalTexture():SetVertexColor(0.7, 1, 0.7)
-            this.activeIndicator:SetText("|cff00ff00ACTIVE|r")
-          else
-            -- this:GetNormalTexture():SetVertexColor(1, 1, 1)
-            this.activeIndicator:SetText("")
-          end
-        end)
-
-        btn.index = index
-        talentButtons[index] = btn
-        index = index + 1
-    end
-end
 
 --------------------------------------------------
 -- Reset Talents Button (Anchored below the grid)
@@ -352,6 +246,409 @@ end)
 mainFrame.washerButton:SetScript("OnLeave", function()
   GameTooltip:Hide()
 end)
+
+local function CreateLegacyIconSelector()
+    local f = CreateFrame("Frame", "BrainSaverIconSelector", UIParent)
+    f:SetWidth(340)
+    f:SetHeight(320)
+    f:SetBackdrop({
+        bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+        edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+        tile = true, tileSize = 32, edgeSize = 32,
+        insets = { left = 11, right = 12, top = 12, bottom = 11 }
+    })
+    f:SetPoint("CENTER", UIParent, "CENTER")
+    f:EnableMouse(true)
+    f:SetMovable(true)
+    f:RegisterForDrag("LeftButton")
+    f:SetScript("OnDragStart", function() f:StartMoving() end)
+    f:SetScript("OnDragStop", function() f:StopMovingOrSizing() end)
+    f:Hide()
+
+    local title = f:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+    title:SetText("Choose an Icon")
+    title:SetPoint("TOP", 0, -16)
+
+    -- ScrollFrame
+    local scrollFrame = CreateFrame("ScrollFrame", "BrainSaverIconSelectorScrollFrame", f, "UIPanelScrollFrameTemplate")
+    scrollFrame:SetPoint("TOPLEFT", f, "TOPLEFT", 10, -40)
+    scrollFrame:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -30, 10)
+
+    -- Content frame where icons will be placed
+    local content = CreateFrame("Frame", nil, scrollFrame)
+    content:SetWidth(300)
+    -- Hauteur totale calculée après création des boutons, on met large pour le scroll horizontal désactivé
+    scrollFrame:SetScrollChild(content)
+
+    local ICON_LIST = {
+    -- Général / Capacités diverses
+    "INV_Misc_QuestionMark",
+    "Ability_Ambush",
+    "Ability_BackStab",
+    "Ability_CheapShot",
+    "Ability_CriticalStrike",
+    "Ability_Defend",
+    "Ability_DualWield",
+    "Ability_EyeOfTheOwl",
+    --"Ability_FeignDeath",
+    "Ability_GhoulFrenzy",
+    "Ability_Gouge",
+    "Ability_Hibernation",
+    "Ability_Hunter_RunningShot",
+    "Ability_Kick",
+    "Ability_Marksmanship",
+    "Ability_MeleeDamage",
+    "Ability_Racial_BloodRage",
+    "Ability_Throw",
+    "Ability_ThunderBolt",
+    "Ability_Tracking",
+    "Ability_Whirlwind",
+
+    -- Guerrier
+    "Ability_Warrior_Charge",
+    "Ability_Warrior_Cleave",
+    "Ability_Warrior_DefensiveStance",
+    "Ability_Warrior_Disarm",
+    "Ability_Warrior_InnerRage",
+    "Ability_Warrior_PunishingBlow",
+    "Ability_Warrior_Revenge",
+    "Ability_Warrior_Riposte",
+    "Ability_Warrior_SavageBlow",
+    "Ability_Warrior_ShieldBash",
+    "Ability_Warrior_ShieldWall",
+    "Ability_Warrior_Sunder",
+    --"Ability_Warrior_Taunt",
+    "Ability_Warrior_RallyingCry",
+    "Ability_Warrior_WarCry",
+
+    -- Paladin
+    "Spell_Holy_HolyBolt",
+    "Spell_Holy_SealOfMight",
+    "Spell_Holy_SealOfRighteousness",
+    "Spell_Holy_SealOfSalvation",
+    --"Spell_Holy_SealOfLight",
+    "Spell_Holy_SealOfWisdom",
+    "Spell_Holy_AuraOfLight",
+    "Spell_Holy_BlessingOfProtection",
+    --"Spell_Holy_BlessingOfSacrifice",
+    --"Spell_Holy_BlessingOfMight",
+    --"Spell_Holy_BlessingOfKings",
+    "Spell_Holy_Excorcism_02",
+    --"Ability_Paladin_HolyAvenger",
+
+    -- Chasseur
+    "Ability_Hunter_AspectOfTheMonkey",
+    --"Ability_Hunter_AspectOfTheHawk",
+    --"Ability_Hunter_AspectOfTheCheetah",
+    --"Ability_Hunter_AspectOfThePack",
+    --"Ability_Hunter_ExplosiveTrap",
+    --"Ability_Hunter_FrostTrap",
+    "Ability_Hunter_Pet_Bear",
+    "Ability_Hunter_Pet_Cat",
+    "Ability_Hunter_Pet_Crab",
+    "Ability_Hunter_Pet_Crocolisk",
+    "Ability_Hunter_Pet_Gorilla",
+    "Ability_Hunter_Pet_Hyena",
+    "Ability_Hunter_Pet_Owl",
+    "Ability_Hunter_Pet_Raptor",
+    "Ability_Hunter_Pet_Scorpid",
+    "Ability_Hunter_Pet_Spider",
+    "Ability_Hunter_Pet_TallStrider",
+    "Ability_Hunter_Pet_Turtle",
+    "Ability_Hunter_Pet_WindSerpent",
+    "Ability_Hunter_Pet_Wolf",
+    "Ability_Hunter_SniperShot",
+    "Ability_Hunter_SteadyShot",
+
+    -- Voleur
+    "Ability_Rogue_Eviscerate",
+    "Ability_Rogue_KidneyShot",
+    "Ability_Rogue_SliceDice",
+    --"Ability_Rogue_SinisterStrike",
+    "Ability_Rogue_FeignDeath",
+    "Ability_Rogue_Garrote",
+    "Ability_Rogue_Rupture",
+    --"Ability_Rogue_DualWield",
+    "Ability_Rogue_Disguise",
+    "Ability_Rogue_Trip",
+
+    -- Prêtre
+    "Spell_Holy_FlashHeal",
+    "Spell_Holy_GreaterHeal",
+    "Spell_Holy_Heal",
+    "Spell_Holy_HolyBolt",
+    "Spell_Holy_PowerWordShield",
+    "Spell_Holy_Renew",
+    --"Spell_Holy_Serendipity",
+    --"Spell_Holy_Shield",
+    "Spell_Holy_PrayerOfHealing",
+    --"Spell_Holy_Penance",
+    "Spell_Holy_MindSooth",
+    "Spell_Holy_MindVision",
+    "Spell_Holy_DispelMagic",
+
+    -- Chaman
+    "Spell_Nature_HealingWaveLesser",
+    --"Spell_Nature_HealingWave",
+    "Spell_Nature_Lightning",
+    "Spell_Nature_LightningBolt",
+    "Spell_Nature_LightningShield",
+    "Spell_Nature_MagicImmunity",
+    "Spell_Nature_StoneClawTotem",
+    "Spell_Nature_StoneSkinTotem",
+    "Spell_Nature_Strength",
+    "Spell_Nature_ThunderClap",
+    "Spell_Nature_Windfury",
+    "Spell_Nature_WispHeal",
+    "Spell_Nature_EarthBind",
+    "Spell_Nature_Earthquake",
+
+    -- Mage
+    "Spell_Frost_FrostBolt02",
+    "Spell_Frost_FrostBolt",
+    "Spell_Frost_IceStorm",
+    "Spell_Frost_FrostNova",
+    "Spell_Frost_FrostArmor",
+    "Spell_Frost_ChainsOfIce",
+    --"Spell_Frost_Blizzard",
+    --"Spell_Frost_ColdSnap",
+    "Spell_Frost_FrostWard",
+    --"Spell_Frost_ManaShield",
+    --"Spell_Frost_Polymorph",
+    --"Spell_Frost_Frostfire",
+
+    -- Démoniste
+    "Spell_Shadow_Curse",
+    --"Spell_Shadow_Corruption",
+    "Spell_Shadow_DeathCoil",
+    "Spell_Shadow_EnslaveDemon",
+    --"Spell_Shadow_Fear",
+    "Spell_Shadow_ImpPhaseShift",
+    "Spell_Shadow_LifeDrain",
+    "Spell_Shadow_Metamorphosis",
+    "Spell_Shadow_RainOfFire",
+    "Spell_Shadow_SiphonMana",
+    "Spell_Shadow_SummonFelHunter",
+    "Spell_Shadow_SummonSuccubus",
+    "Spell_Shadow_SummonVoidWalker",
+    "Spell_Shadow_SummonInfernal",
+
+    -- Druide
+    "Ability_Druid_AquaticForm",
+    "Ability_Druid_Bash",
+    --"Ability_Druid_BearForm",
+    "Ability_Druid_CatForm",
+    --"Ability_Druid_HealingTouch",
+    "Ability_Druid_Maul",
+    --"Ability_Druid_Rejuvenation",
+    --"Ability_Druid_Regrowth",
+    "Ability_Druid_Swipe",
+    --"Ability_Druid_Thorns",
+    "Ability_Druid_TravelForm",
+    "Ability_Mount_WhiteTiger",
+    "Ability_Mount_JungleTiger",
+
+    -- Armes
+    "INV_Weapon_ShortBlade_01",
+    "INV_Weapon_ShortBlade_02",
+    "INV_Weapon_ShortBlade_03",
+    "INV_Weapon_ShortBlade_04",
+    "INV_Weapon_ShortBlade_05",
+    "INV_Weapon_Rifle_01",
+    "INV_Weapon_Rifle_02",
+    "INV_Weapon_Rifle_03",
+    "INV_Weapon_Bow_01",
+    "INV_Weapon_Bow_02",
+    "INV_Weapon_Bow_03",
+    "INV_Weapon_Bow_04",
+    "INV_Weapon_Bow_05",
+    "INV_Weapon_Crossbow_01",
+    "INV_Weapon_Crossbow_02",
+    "INV_Weapon_Crossbow_03",
+    "INV_Weapon_Crossbow_04",
+    "INV_Weapon_Crossbow_05",
+    "INV_Weapon_Halberd_02",
+    "INV_Weapon_Halberd_03",
+    "INV_Weapon_Halberd_04",
+    "INV_Weapon_Halberd_05",
+
+    -- Armures
+    "INV_Chest_Chain_05",
+    "INV_Chest_Chain_06",
+    "INV_Chest_Leather_07",
+    "INV_Chest_Leather_08",
+    "INV_Chest_Cloth_01",
+    "INV_Chest_Cloth_02",
+    "INV_Chest_Cloth_03",
+    "INV_Chest_Plate03",
+    "INV_Chest_Plate04",
+    "INV_Chest_Plate05",
+    "INV_Chest_Plate06",
+    "INV_Boots_01",
+    "INV_Boots_02",
+    "INV_Boots_03",
+    "INV_Boots_04",
+    "INV_Boots_05",
+    "INV_Belt_01",
+    "INV_Belt_02",
+    "INV_Belt_03",
+    "INV_Belt_04",
+    "INV_Belt_05",
+
+    -- Casques
+    "INV_Helmet_01",
+    "INV_Helmet_02",
+    "INV_Helmet_03",
+    "INV_Helmet_04",
+    "INV_Helmet_05",
+    "INV_Helmet_06",
+    "INV_Helmet_07",
+    "INV_Helmet_08",
+    "INV_Helmet_09",
+    "INV_Helmet_10",
+
+    -- Divers / Consommables / Montures / Têtes de monstres
+    "INV_Misc_Book_01",
+    "INV_Misc_Book_02",
+    "INV_Misc_Book_03",
+    "INV_Misc_Book_04",
+    "INV_Misc_Book_05",
+    "INV_Misc_Book_06",
+    "INV_Misc_Book_07",
+    "INV_Misc_Book_08",
+    "INV_Misc_Book_09",
+    "INV_Misc_EngGizmos_01",
+    "INV_Misc_EngGizmos_02",
+    "INV_Misc_EngGizmos_03",
+    "INV_Misc_EngGizmos_04",
+    "INV_Misc_Food_01",
+    "INV_Misc_Food_02",
+    "INV_Misc_Food_03",
+    "INV_Misc_Food_04",
+    "INV_Misc_Food_05",
+    "INV_Misc_Gem_Emerald_01",
+    "INV_Misc_Gem_Ruby_01",
+    "INV_Misc_Gem_Sapphire_01",
+    "INV_Misc_Herb_01",
+    "INV_Misc_Herb_02",
+    "INV_Misc_Herb_03",
+    "INV_Misc_Orb_01",
+    "INV_Misc_Orb_02",
+    "INV_Misc_Pelt_Bear_01",
+    "INV_Misc_Pelt_Wolf_01",
+    "INV_Misc_Rune_01",
+    "INV_Misc_Rune_02",
+    "INV_Misc_StoneTablet_01",
+    "INV_Misc_StoneTablet_02",
+    "INV_Misc_StoneTablet_03",
+    "INV_Misc_StoneTablet_04",
+    "INV_Misc_StoneTablet_05",
+    "INV_Misc_Head_Orc_01",
+    "INV_Misc_Head_Orc_02",
+    "INV_Misc_Head_Tauren_01",
+    "INV_Misc_Head_Tauren_02",
+    "INV_Misc_Head_Troll_01",
+    "INV_Misc_Head_Troll_02",
+    "INV_Misc_Head_Human_01",
+    "INV_Misc_Head_Human_02",
+    "INV_Misc_Head_Dwarf_01",
+    "INV_Misc_Head_Dwarf_02",
+
+    -- Potions & Consommables
+    "INV_Potion_01",
+    "INV_Potion_02",
+    "INV_Potion_03",
+    "INV_Potion_04",
+    "INV_Potion_05",
+    "INV_Potion_06",
+    "INV_Potion_07",
+    "INV_Potion_08",
+    "INV_Potion_09",
+    "INV_Potion_10",
+    "INV_Potion_11",
+    "INV_Potion_12",
+
+    -- Montures
+    "Ability_Mount_RidingHorse",
+    "Ability_Mount_Dreadsteed",
+    "Ability_Mount_BlackDireWolf",
+    "Ability_Mount_WhiteTiger",
+    "Ability_Mount_JungleTiger",
+    "Ability_Mount_MountainRam",
+    }
+
+
+
+
+
+    local function mod(a, b)
+        return a - math.floor(a / b) * b
+    end
+
+    local selectedCallback = nil
+    f.iconButtons = {}  -- 👈 Important : stockage ici
+
+    local buttonsPerRow = 7
+    local spacing = 40
+    local offsetX, offsetY = 0, 0
+
+    local iconCount = table.getn(ICON_LIST)
+
+    for i = 1, iconCount do
+        local thisIconName = ICON_LIST[i]
+        local button = CreateFrame("Button", nil, content)
+        button:SetWidth(36)
+        button:SetHeight(36)
+
+        local row = math.floor((i - 1) / buttonsPerRow)
+        local col = mod(i - 1, buttonsPerRow)
+
+        button:SetPoint("TOPLEFT", content, "TOPLEFT", offsetX + col * spacing, offsetY - row * spacing)
+
+        local tex = button:CreateTexture(nil, "ARTWORK")
+        tex:SetAllPoints()
+        tex:SetTexture("Interface\\Icons\\" .. thisIconName)
+        button.texture = tex
+        button.iconName = thisIconName
+
+        local highlight = button:CreateTexture(nil, "OVERLAY")
+        highlight:SetAllPoints()
+        highlight:SetTexture("Interface\\Buttons\\UI-Quickslot2") -- compatible 1.12
+        highlight:SetVertexColor(1, 1, 0, 0.5) -- jaune pâle transparent
+        highlight:Hide()
+        button.highlight = highlight
+
+        button:SetScript("OnClick", function()
+            if selectedCallback then
+                selectedCallback("Interface\\Icons\\" .. thisIconName)
+            end
+            f:Hide()
+        end)
+
+        table.insert(f.iconButtons, button) -- 👈 Ajouter dans la liste
+    end
+
+    local totalRows = math.ceil(iconCount / buttonsPerRow)
+    content:SetHeight(totalRows * spacing)
+
+    function f:ShowSelector(callback, currentIcon)
+        selectedCallback = callback
+        self:Show()
+
+        for _, btn in ipairs(self.iconButtons) do
+            if ("Interface\\Icons\\" .. btn.iconName) == currentIcon then
+                btn.highlight:Show()
+            else
+                btn.highlight:Hide()
+            end
+        end
+    end
+
+    return f
+end
+
+-- Initialisation unique
+local BrainSaver_IconSelector = BrainSaver_IconSelector or CreateLegacyIconSelector()
 
 --------------------------------------------------
 -- Static Popup Dialogs
@@ -425,38 +722,71 @@ StaticPopupDialogs["ENABLE_TALENT_LAYOUT"] = {
 }
 
 StaticPopupDialogs["EDIT_TALENT_SLOT"] = {
-    text = "Change talent spec icon:\n\nEnter an icon path or spell or talent name.",
+    text = "Choose icon for this spec:",
     button1 = "Save",
     button2 = "Cancel",
-    hasEditBox = 1,
-    hasWideEditBox = 1,
-    OnShow = function()
-      mainFrame:SetAlpha(dialog_alpha)
-      local editBox = _G[this:GetName().."WideEditBox"]
-      local spec = BrainSaverDB.spec[mainFrame.currentButton]
-      if spec and spec.icon then
-        editBox:SetText(spec.icon)
-      else
-        editBox:SetText("Interface\\Icons\\INV_Misc_QuestionMark")
-      end
+
+    OnShow = function(this)
+        mainFrame:SetAlpha(dialog_alpha)
+
+        local idx = mainFrame.currentButton
+        local spec = BrainSaverDB.spec[idx]
+        local currentIcon = spec and spec.icon or "Interface\\Icons\\INV_Misc_QuestionMark"
+
+        -- Stocker l'icône actuelle au moment d'ouvrir la popup
+        self.selectedIcon = currentIcon
+        self.originalIcon = currentIcon -- pour restaurer en cas d'annulation
+
+        -- Ouvrir le sélecteur avec surbrillance de l'icône actuelle
+        BrainSaver_IconSelector:ShowSelector(function(selectedIcon)
+            -- Mise à jour temporaire de l'icône sélectionnée
+            self.selectedIcon = selectedIcon
+
+            if idx and talentButtons[idx] then
+                talentButtons[idx]:SetIcon(selectedIcon)
+            end
+        end, currentIcon)
     end,
-    OnAccept = function()
-      local button = talentButtons[mainFrame.currentButton]
-      local newText = _G[this:GetParent():GetName().."WideEditBox"]:GetText()
-      local icon = button:SetIcon(newText)
-      if BrainSaverDB.spec[mainFrame.currentButton] then
-        BrainSaverDB.spec[mainFrame.currentButton].icon = icon
-      end
+
+    OnAccept = function(this)
+        local idx = mainFrame.currentButton
+        if self.selectedIcon and idx then
+            -- Sauvegarde définitive dans la DB
+            BrainSaverDB.spec[idx] = BrainSaverDB.spec[idx] or {}
+            BrainSaverDB.spec[idx].icon = self.selectedIcon
+
+        end
+
+        if BrainSaver_IconSelector and BrainSaver_IconSelector:IsShown() then
+            BrainSaver_IconSelector:Hide()
+        end
     end,
-    OnHide = function()
-      _G[this:GetName().."WideEditBox"]:SetText("")
-      mainFrame:SetAlpha(1)
+
+    OnCancel = function(this)
+        local idx = mainFrame.currentButton
+        if idx and self.originalIcon then
+            -- Restaurer l'icône originale dans le bouton talent si annulé
+            if talentButtons[idx] then
+                talentButtons[idx]:SetIcon(self.originalIcon)
+            end
+        end
+
+        if BrainSaver_IconSelector and BrainSaver_IconSelector:IsShown() then
+            BrainSaver_IconSelector:Hide()
+        end
     end,
+
+    OnHide = function(this)
+        mainFrame:SetAlpha(1)
+    end,
+
     timeout = 0,
     whileDead = 1,
     hideOnEscape = 1,
     preferredIndex = 3,
 }
+
+
 
 -- todo, show the spec numbers you're saving, and what exists in the slot
 StaticPopupDialogs["SAVE_TALENT_LAYOUT"] = {
@@ -489,24 +819,28 @@ StaticPopupDialogs["SAVE_TALENT_LAYOUT"] = {
       end
     end,
     OnAccept = function()
+      print("OnAccept called in SAVE_TALENT_LAYOUT")
       local button = talentButtons[mainFrame.currentButton]
       local newName = _G[this:GetParent():GetName().."EditBox"]:GetText()
-      local t1,t2,t3 = TalentCounts()
+      local t1, t2, t3 = TalentCounts()
       local talents = FetchTalents()
 
-      BrainSaverDB.spec[button.index] = {
-        name = newName,
-        t1 = t1,
-        t2 = t2,
-        t3 = t3,
-        talents = talents,
-        icon = (BrainSaverDB.spec[button.index] and BrainSaverDB.spec[button.index].icon) or "Interface\\Icons\\INV_Misc_QuestionMark"
-      }
+      local newIcon = BrainSaverDB.spec[button.index] and BrainSaverDB.spec[button.index].icon or "Interface\\Icons\\INV_Misc_QuestionMark"
+      print("Icon saved:", newIcon)
+
+      BrainSaverDB.spec[button.index] = BrainSaverDB.spec[button.index] or {}
+
+      BrainSaverDB.spec[button.index].name = newName
+      BrainSaverDB.spec[button.index].t1 = t1
+      BrainSaverDB.spec[button.index].t2 = t2
+      BrainSaverDB.spec[button.index].t3 = t3
+      BrainSaverDB.spec[button.index].talents = talents
+      BrainSaverDB.spec[button.index].icon = newIcon
 
       button.layoutName:SetText(newName)
-      button.talentSummary:SetText(ColorSpecSummary(t1,t2,t3))
+      button.talentSummary:SetText(ColorSpecSummary(t1, t2, t3))
+      button:SetIcon(newIcon)
 
-      -- Send the appropriate gossip option:
       mainFrame.gossip_slots.save[mainFrame.currentButton]:Click()
     end,
     OnHide = function()
@@ -543,6 +877,161 @@ StaticPopupDialogs["RESET_TALENTS"] = {
     preferredIndex = 3,
     showAlert = 1,
 }
+
+
+
+--------------------------------------------------
+-- Create 4 Talent Buttons in a 2x2 Grid
+--------------------------------------------------
+
+local numRows, numCols = 2, 2
+local btnWidth, btnHeight = 64, 64
+local spacing = 40
+
+-- Calculs de position
+local gridWidth = numCols * btnWidth + (numCols - 1) * spacing
+local gridXOffset = (mainFrame:GetWidth() - gridWidth) / 2
+local gridTopOffset = -110
+
+local index = 1
+for row = 1, numRows do
+    for col = 1, numCols do
+        local btn = CreateFrame("Button", "TalentButton"..index, mainFrame, "ActionButtonTemplate")
+        btn:SetWidth(btnWidth)
+        btn:SetHeight(btnHeight)
+
+        local x = gridXOffset + (col - 1) * (btnWidth + spacing)
+        local y = gridTopOffset - (row - 1) * (btnHeight + spacing)
+        btn:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", x, y)
+        btn:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+
+        -- Numéro de slot
+        btn.slotNumberText = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        btn.slotNumberText:SetFont(btn.slotNumberText:GetFont(), 16, "")
+        btn.slotNumberText:SetPoint("CENTER", btn, "BOTTOMRIGHT", -8, 9)
+        btn.slotNumberText:SetText(index)
+
+        -- Nom au-dessus
+        btn.layoutName = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        btn.layoutName:SetPoint("BOTTOM", btn, "TOP", 0, 16)
+        btn.layoutName:SetText("Spec " .. index)
+
+        -- Résumé talents
+        btn.talentSummary = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        btn.talentSummary:SetPoint("BOTTOM", btn, "TOP", 0, 2)
+        btn.talentSummary:SetText("? | ? | ?")
+
+        -- Indicateur actif
+        btn.activeIndicator = btn:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+        local aif, ais = btn.activeIndicator:GetFont()
+        btn.activeIndicator:SetFont(aif, ais, "OUTLINE")
+        btn.activeIndicator:SetPoint("CENTER", btn, "CENTER", 0, 0)
+        btn.activeIndicator:SetText("")
+
+        -- Autres propriétés
+        btn.isActive = false
+        btn.clickPending = false
+        btn.lastClickTime = 0
+
+        -- Méthodes personnalisées
+        function btn:SetName(name)
+            self.layoutName:SetText(name)
+        end
+        function btn:GetName()
+            return self.layoutName:GetText()
+        end
+        function btn:SetTalentSummary(t1, t2, t3)
+            if not t1 then
+                self.talentSummary:SetText("? | ? | ?")
+            elseif type(t1) == "string" then
+                self.talentSummary:SetText(t1)
+            else
+                self.talentSummary:SetText(ColorSpecSummary(t1, t2, t3))
+            end
+        end
+        function btn:GetTalentSummary()
+            return self.talentSummary:GetText()
+        end
+        function btn:GetIndex()
+            return self.index
+        end
+        function btn:GetIcon()
+            return self:GetNormalTexture():GetTexture()
+        end
+        function btn:SetIcon(source, disabled)
+            if type(source) ~= "string" or source == "" then
+                source = "Interface\\Icons\\INV_Misc_QuestionMark"
+            end
+
+            local icon = FindTexture(source)
+            if not icon then
+                icon = "Interface\\Icons\\INV_Misc_QuestionMark"
+            end
+
+            self:SetNormalTexture(icon)
+            self:SetPushedTexture(icon)
+
+            if disabled then
+                self:GetNormalTexture():SetVertexColor(0.5, 0.5, 0.5)
+            else
+                self:GetNormalTexture():SetVertexColor(1, 1, 1)
+            end
+
+            return icon
+        end
+
+        btn:SetIcon("Interface\\Icons\\INV_Misc_QuestionMark")
+
+        -- Chargement des données sauvegardées (icon, nom, talents)
+        local savedSpec = BrainSaverDB.spec[index]
+        if savedSpec then
+            if savedSpec.icon then
+                btn:SetIcon(savedSpec.icon)
+            end
+            if savedSpec.name then
+                btn:SetName(savedSpec.name)
+            end
+            if savedSpec.t1 and savedSpec.t2 and savedSpec.t3 then
+                btn:SetTalentSummary(savedSpec.t1, savedSpec.t2, savedSpec.t3)
+            end
+        end
+
+        -- Gestion des clics
+        btn:SetScript("OnClick", function()
+            mainFrame.currentButton = this.index
+            if this.isActive then
+                if arg1 == "RightButton" and IsShiftKeyDown() then
+                    StaticPopup_Show("EDIT_TALENT_SLOT")
+                elseif arg1 == "RightButton" then
+                    StaticPopup_Show("SAVE_TALENT_LAYOUT")
+                elseif arg1 == "LeftButton" then
+                    if BrainSaverDB.spec[this.index] then
+                        StaticPopup_Show("ENABLE_TALENT_LAYOUT")
+                    end
+                end
+            else
+                local price
+                for s,btn in mainFrame.gossip_slots.buy do
+                    price = btn.price
+                    break
+                end
+                StaticPopup_Show("BUY_TALENT_SLOT", price)
+            end
+        end)
+
+        btn:SetScript("OnShow", function ()
+            if this.isCurrentSpec then
+                this.activeIndicator:SetText("|cff00ff00ACTIVE|r")
+            else
+                this.activeIndicator:SetText("")
+            end
+        end)
+
+        btn.index = index
+        talentButtons[index] = btn
+        index = index + 1
+    end
+end
 
 --------------------------------------------------
 -- Event Handling
