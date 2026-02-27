@@ -11,6 +11,6 @@ ___
 
 ___
 ### Optional Integration
-* [Talentsaver](https://github.com/pepopo978/Talentsaver) - When available, used instead of the brainwasher NPC to swap specs. Requires [nampower](https://gitea.com/avitasia/nampower) v2.35.0+.
+* [Talentsaver](https://github.com/pepopo978/Talentsaver) - When available, used instead of the brainwasher spec choosing dialogue to swap specs. Requires [nampower](https://gitea.com/avitasia/nampower) v2.35.0+.
 ___
 * Made by and for Weird Vibes of Turtle Wow
