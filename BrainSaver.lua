@@ -87,7 +87,7 @@ local function TalentCounts()
   return t1,t2,t3
 end
 
-function FetchTalents()
+local function FetchTalents()
   local talents = {}
   for tab=1,3 do
     local _,_,tcount = GetTalentTabInfo(tab)
@@ -100,15 +100,15 @@ function FetchTalents()
         icon = icon,
         row = row,
         col = col,
-        count = count,
-        max = max,
+        count = count or 0,
+        max = max or 0,
       }
     end
   end
   return talents
 end
 
-function IsSameSpec(t1, t2)
+local function IsSameSpec(t1, t2)
   for i, tab in ipairs(t1) do
     for j, talent in ipairs(tab) do
       if not (t2[i] and t2[i][j] and talent.count == t2[i][j].count) then
@@ -165,7 +165,7 @@ local function SearchTalentsForIcon(talentName)
   return foundTexture
 end
 
-function FindTexture(source)
+local function FindTexture(source)
   local icon = "Interface\\Icons\\INV_Misc_QuestionMark"
   local spell_icon = SearchSpellbookForIcon(source)
   local talent_icon = SearchTalentsForIcon(source)
@@ -182,6 +182,57 @@ function FindTexture(source)
   end
 
   return icon
+end
+
+--------------------------------------------------
+-- Talentsaver Integration
+--------------------------------------------------
+local function HasMinimumNampower(major, minor, patch)
+  if not GetNampowerVersion then return false end
+  local iMajor, iMinor, iPatch = GetNampowerVersion()
+  if iMajor > major then return true
+  elseif iMajor == major and iMinor > minor then return true
+  elseif iMajor == major and iMinor == minor and iPatch >= patch then return true
+  end
+  return false
+end
+
+local function IsTalentsaverAvailable()
+  return TALENTSAVER_LOAD and TALENTS_SAVED
+end
+
+local function IsTalentsaverUsable()
+  return IsTalentsaverAvailable() and HasMinimumNampower(2, 35, 0)
+end
+
+local function SyncToTalentsaver(spec)
+  if not (TALENTS_SAVED and spec and spec.talents) then return end
+  local name = spec.name
+  if not name then return end
+  local t1 = spec.t1 or 0
+  local t2 = spec.t2 or 0
+  local t3 = spec.t3 or 0
+  local build = {}
+  for tab = 1, 3 do
+    build[tab] = {}
+    if spec.talents[tab] then
+      for i, talent in ipairs(spec.talents[tab]) do
+        build[tab][i] = talent.count or 0
+      end
+    end
+  end
+  TALENTS_SAVED["BUILDS"] = TALENTS_SAVED["BUILDS"] or {}
+  TALENTS_SAVED["INFO"] = TALENTS_SAVED["INFO"] or {}
+  TALENTS_SAVED["LIST"] = TALENTS_SAVED["LIST"] or {}
+  TALENTS_SAVED["BUILDS"][name] = build
+  TALENTS_SAVED["INFO"][name] = { t1, t2, t3, t1 + t2 + t3 }
+  local found = false
+  for _, v in ipairs(TALENTS_SAVED["LIST"]) do
+    if v == name then found = true; break end
+  end
+  if not found then
+    table.insert(TALENTS_SAVED["LIST"], name)
+  end
 end
 
 --------------------------------------------------
@@ -330,6 +381,7 @@ mainFrame.resetButton:SetHeight(30)
 mainFrame.resetButton:SetPoint("BOTTOM", mainFrame, "BOTTOM", 0, 20)
 mainFrame.resetButton:SetText(L.RESET_TALENTS_STR_SHORT)
 mainFrame.resetButton:SetScript("OnClick", function()
+    if TALENTSAVER_IsLoading and TALENTSAVER_IsLoading() then return end
     StaticPopup_Show("RESET_TALENTS")
 end)
 
@@ -353,6 +405,39 @@ end)
 mainFrame.washerButton:SetScript("OnLeave", function()
   GameTooltip:Hide()
 end)
+
+--------------------------------------------------
+-- Talentsaver Toggle
+--------------------------------------------------
+mainFrame.talentsaverCheck = CreateFrame("CheckButton", "BrainSaverTalentsaverCheck", mainFrame, "UICheckButtonTemplate")
+mainFrame.talentsaverCheck:SetWidth(24)
+mainFrame.talentsaverCheck:SetHeight(24)
+mainFrame.talentsaverCheck:SetPoint("BOTTOMLEFT", mainFrame, "BOTTOMLEFT", 12, 18)
+mainFrame.talentsaverCheck:SetScript("OnClick", function()
+  if not IsTalentsaverUsable() then
+    this:SetChecked(false)
+    return
+  end
+  BrainSaverDB.useTalentsaver = (this:GetChecked() == 1)
+end)
+mainFrame.talentsaverCheck:SetScript("OnEnter", function()
+  GameTooltip:SetOwner(this, "ANCHOR_RIGHT")
+  if IsTalentsaverUsable() then
+    GameTooltip:SetText(L.TALENTSAVER_TOOLTIP_STR, 1, 1, 0)
+  else
+    GameTooltip:SetText(L.TALENTSAVER_TOOLTIP_DISABLED_STR, 1, 0.3, 0.3)
+  end
+  GameTooltip:Show()
+end)
+mainFrame.talentsaverCheck:SetScript("OnLeave", function()
+  GameTooltip:Hide()
+end)
+mainFrame.talentsaverCheck:Hide()
+
+mainFrame.talentsaverLabel = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+mainFrame.talentsaverLabel:SetPoint("LEFT", mainFrame.talentsaverCheck, "RIGHT", 0, 0)
+mainFrame.talentsaverLabel:SetText(L.TALENTSAVER_TOGGLE_STR)
+mainFrame.talentsaverLabel:Hide()
 
 --------------------------------------------------
 -- Static Popup Dialogs
@@ -397,14 +482,18 @@ StaticPopupDialogs["ENABLE_TALENT_LAYOUT"] = {
       local button = talentButtons[mainFrame.currentButton]
       local spec = BrainSaverDB.spec[button.index]
       local t1,t2,t3 = TalentCounts()
-      _G[this:GetName().."Text"]:SetText(
-        format(L.ENABLE_TALENT_LAYOUT_FMT,
-                button.index,
-                button:GetName(),
-                ColorSpecSummary(spec.t1, spec.t2, spec.t3),
-                ColorSpecSummary(t1, t2, t3))
-      )
-      if spec then
+      if spec and spec.t1 then
+        local fmt = L.ENABLE_TALENT_LAYOUT_FMT
+        if BrainSaverDB.useTalentsaver and IsTalentsaverUsable() then
+          fmt = L.ENABLE_TALENT_LAYOUT_TS_FMT
+        end
+        _G[this:GetName().."Text"]:SetText(
+          format(fmt,
+                  button.index,
+                  button:GetName(),
+                  ColorSpecSummary(spec.t1, spec.t2, spec.t3),
+                  ColorSpecSummary(t1, t2, t3))
+        )
         _G[this:GetName().."AlertIcon"]:SetTexture(spec.icon)
       else
         _G[this:GetName().."AlertIcon"]:SetTexture(button:GetIcon())
@@ -412,8 +501,24 @@ StaticPopupDialogs["ENABLE_TALENT_LAYOUT"] = {
     end,
     OnAccept = function()
       local button = talentButtons[mainFrame.currentButton]
-      -- Send the appropriate gossip option:
-      mainFrame.gossip_slots.load[mainFrame.currentButton]:Click()
+      local spec = BrainSaverDB.spec[button.index]
+      if BrainSaverDB.useTalentsaver and IsTalentsaverUsable() and spec and spec.talents and mainFrame.gossip_slots.reset then
+        if TALENTSAVER_IsLoading and TALENTSAVER_IsLoading() then
+          DEFAULT_CHAT_FRAME:AddMessage("|cffff5500[BrainSaver]|r " .. L.TALENTSAVER_BUSY_STR)
+          return
+        end
+        SyncToTalentsaver(spec)
+        local t1,t2,t3 = TalentCounts()
+        if (t1 + t2 + t3) == 0 then
+          HideUIPanel(GossipFrame)
+          TALENTSAVER_LOAD(spec.name)
+        else
+          mainFrame.pendingTalentsaverLoad = spec.name
+          mainFrame.gossip_slots.reset:Click()
+        end
+      else
+        mainFrame.gossip_slots.load[mainFrame.currentButton]:Click()
+      end
     end,
     OnHide = function ()
       mainFrame:SetAlpha(1)
@@ -475,7 +580,7 @@ StaticPopupDialogs["SAVE_TALENT_LAYOUT"] = {
         format(L.SAVE_TALENT_LAYOUT_FMT,
                 button.index,
                 button.layoutName:GetText(),
-                spec and ColorSpecSummary(spec.t1,spec.t2,spec.t3) or "? | ? | ?",
+                (spec and spec.t1) and ColorSpecSummary(spec.t1,spec.t2,spec.t3) or "? | ? | ?",
                 ColorSpecSummary(t1,t2,t3))
       )
       local editBox = _G[this:GetName().."EditBox"]
@@ -504,6 +609,10 @@ StaticPopupDialogs["SAVE_TALENT_LAYOUT"] = {
 
       button.layoutName:SetText(newName)
       button.talentSummary:SetText(ColorSpecSummary(t1,t2,t3))
+
+      if BrainSaverDB.useTalentsaver and IsTalentsaverUsable() then
+        SyncToTalentsaver(BrainSaverDB.spec[button.index])
+      end
 
       -- Send the appropriate gossip option:
       mainFrame.gossip_slots.save[mainFrame.currentButton]:Click()
@@ -550,6 +659,7 @@ mainFrame:RegisterEvent("ADDON_LOADED")
 mainFrame:RegisterEvent("GOSSIP_SHOW")
 mainFrame:RegisterEvent("GOSSIP_CLOSED")
 mainFrame:RegisterEvent("UI_ERROR_MESSAGE")
+mainFrame:RegisterEvent("CHARACTER_POINTS_CHANGED")
 mainFrame:SetScript("OnEvent", function()
   this[event](this,arg1,arg2,arg3,arg4,arg5,arg6,arg7,arg8,arg9,arg10)
 end)
@@ -560,7 +670,7 @@ function mainFrame:UI_ERROR_MESSAGE(msg)
     local ix = GetPlayerBuff(i, "HARMFUL")
     if ix < 0 then break end
     local texture = GetPlayerBuffTexture(ix)
-    if string.lower(texture) == "interface\\icons\\spell_shadow_mindrot" then
+    if texture and string.lower(texture) == "interface\\icons\\spell_shadow_mindrot" then
       local timeRemaining = GetPlayerBuffTimeLeft(ix)
       if timeRemaining then
         UIErrorsFrame:Clear()
@@ -575,14 +685,30 @@ function mainFrame:GOSSIP_CLOSED()
   mainFrame:Hide()
 end
 
+function mainFrame:CHARACTER_POINTS_CHANGED()
+  if self.pendingTalentsaverLoad then
+    if TALENTSAVER_IsLoading and TALENTSAVER_IsLoading() then return end
+    local name = self.pendingTalentsaverLoad
+    self.pendingTalentsaverLoad = nil
+    if TALENTSAVER_LOAD then
+      TALENTSAVER_LOAD(name)
+    end
+  end
+end
+
 function mainFrame:ADDON_LOADED(addon)
   if addon ~= addon_name then return end
   BrainSaverDB = BrainSaverDB or {}
   BrainSaverDB.spec = BrainSaverDB.spec or {}
+  if BrainSaverDB.useTalentsaver == nil then
+    BrainSaverDB.useTalentsaver = false
+  end
 end
 
 function mainFrame:GOSSIP_SHOW()
   if GossipFrameNpcNameText:GetText() ~= L.BRAINWASHER_NPC then return end
+
+  self.pendingTalentsaverLoad = nil
 
   local titleButton;
   local t1,t2,t3 = TalentCounts()
@@ -594,8 +720,12 @@ function mainFrame:GOSSIP_SHOW()
     save = {},
     load = {},
     buy = {},
-    -- reset = nil,
   }
+
+  for i=1,4 do
+    talentButtons[i].canSave = false
+    talentButtons[i].canLoad = false
+  end
 
   for i=1, NUMGOSSIPBUTTONS do
     titleButton = _G["GossipTitleButton" .. i]
@@ -641,12 +771,12 @@ function mainFrame:GOSSIP_SHOW()
     local spec = BrainSaverDB.spec[i]
     button.isCurrentSpec = false
     if button.isActive then
-      if button.canLoad and spec then
+      if button.canLoad and spec and spec.name then
         -- load spec data
-        button:SetIcon(spec.icon)
+        button:SetIcon(spec.icon or "Interface\\Icons\\INV_Misc_QuestionMark")
         button:SetName(spec.name)
-        button:SetTalentSummary(spec.t1,spec.t2,spec.t3)
-        if spec.talents and IsSameSpec(spec.talents,current_spec) then
+        button:SetTalentSummary(spec.t1 or 0, spec.t2 or 0, spec.t3 or 0)
+        if spec.talents and IsSameSpec(spec.talents, current_spec) then
           button.isCurrentSpec = true
         end
       elseif button.canSave then -- if save but no load
@@ -666,12 +796,29 @@ function mainFrame:GOSSIP_SHOW()
     end
     self.resetButton:Hide()
     self.washerButton:Hide()
+    self.talentsaverCheck:Hide()
+    self.talentsaverLabel:Hide()
   else -- restore in case washer was just bought
     for _,btn in talentButtons do
       btn:Show()
     end
     self.resetButton:Show()
     self.washerButton:Show()
+    if IsTalentsaverAvailable() then
+      self.talentsaverCheck:Show()
+      self.talentsaverLabel:Show()
+      if IsTalentsaverUsable() then
+        self.talentsaverCheck:SetChecked(BrainSaverDB.useTalentsaver)
+        self.talentsaverLabel:SetTextColor(1, 0.82, 0)
+      else
+        self.talentsaverCheck:SetChecked(false)
+        BrainSaverDB.useTalentsaver = false
+        self.talentsaverLabel:SetTextColor(0.5, 0.5, 0.5)
+      end
+    else
+      self.talentsaverCheck:Hide()
+      self.talentsaverLabel:Hide()
+    end
   end
 
   GossipFrame:SetAlpha(0) -- 'hide' but don't cause a GOSSIP_CLOSED

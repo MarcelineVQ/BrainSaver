@@ -2,8 +2,8 @@
 ## Title: Brain Saver
 ## Notes: Save and name brainwasher specs
 ## Author: Weird Vibes
-## Version: 1.2.0
-# OptionalDeps: UnitXP_SP3_Addon
+## Version: 1.3.0
+## OptionalDeps: UnitXP_SP3_Addon, Talentsaver
 ## SavedVariablesPerCharacter: BrainSaverDB
 
 locale.lua
